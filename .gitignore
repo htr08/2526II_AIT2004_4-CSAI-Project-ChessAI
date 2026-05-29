@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# Data files (large, không commit)
+data/raw/*.pgn
+data/raw/*.pgn.zst
+data/raw/*.zip
+data/processed/*.pt
+data/processed/*.npz
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Model checkpoints
+models/*.pt
+models/*.pth
+models/*.onnx
+!models/.gitkeep
+
+# Logs
+runs/
+logs/
+*.log
+tensorboard_logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Stockfish binary (nếu có)
+stockfish
+stockfish.exe

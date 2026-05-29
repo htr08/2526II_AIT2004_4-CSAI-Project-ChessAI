@@ -1,0 +1,17 @@
+# Core ML
+torch>=2.0.0
+numpy>=1.24.0
+
+# Chess engine
+python-chess>=1.999
+
+# Utilities
+tqdm>=4.65.0
+matplotlib>=3.7.0
+tensorboard>=2.13.0
+
+# Optional: parsing .pgn.zst files
+zstandard>=0.21.0
+
+# Testing
+pytest>=7.4.0
