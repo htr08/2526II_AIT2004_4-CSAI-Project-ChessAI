@@ -115,6 +115,7 @@ class MCTS:
         dirichlet_alpha: float = 0.3,
         dirichlet_epsilon: float = 0.25,
         add_noise: bool = False,
+        num_parallel: int = 1,
     ):
         """
         Args:
@@ -123,6 +124,9 @@ class MCTS:
             num_simulations: số lần simulate per move
             dirichlet_*: noise tại root cho self-play, không dùng khi play
             add_noise: True khi dùng cho self-play (tăng exploration)
+            num_parallel: gom bao nhiêu leaf lại để evaluate 1 batch (1 = như cũ).
+                >1 bật batch inference (nhanh hơn nhiều trên GPU) — dùng virtual
+                loss để các leaf trong cùng batch không trùng nhau.
         """
         self.model = model
         self.device = device
@@ -131,6 +135,7 @@ class MCTS:
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
         self.add_noise = add_noise
+        self.num_parallel = max(1, int(num_parallel))
 
     @torch.no_grad()
     def _evaluate(self, board: chess.Board) -> tuple[np.ndarray, float]:
@@ -141,8 +146,25 @@ class MCTS:
         v = float(value.squeeze(0).cpu().item())
         return probs, v
 
+    @torch.no_grad()
+    def _evaluate_batch(self, boards: list[chess.Board]) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Evaluate nhiều board cùng lúc → (probs[B,4096], values[B]).
+        Đây là phần "batch inference": 1 forward pass cho cả batch thay vì
+        từng position một.
+        """
+        xs = torch.stack(
+            [board_to_tensor_perspective(b) for b in boards]
+        ).to(self.device)
+        logits, values = self.model(xs)
+        probs = F.softmax(logits, dim=-1).cpu().numpy()      # (B, 4096)
+        vals = values.view(-1).cpu().numpy()                 # (B,)
+        return probs, vals
+
     def search(self, board: chess.Board) -> MCTSNode:
         """Chạy num_simulations MCTS simulations, trả về root."""
+        if self.num_parallel > 1:
+            return self._search_batched(board)
         self.model.eval()
         root = MCTSNode()
 
@@ -184,6 +206,70 @@ class MCTS:
 
             # Backup
             node.backup(value)
+
+        return root
+
+    def _search_batched(self, board: chess.Board) -> MCTSNode:
+        """
+        Giống search() nhưng gom self.num_parallel leaf lại evaluate 1 batch.
+        Dùng virtual loss (tạm cộng visit_count dọc path) để các leaf trong cùng
+        batch tản ra, không chọn trùng một nhánh.
+
+        Lưu ý: với num_parallel=1 thì search() đã dùng path cũ, hàm này chỉ chạy
+        khi num_parallel>1. Nên kiểm chứng trên máy có torch trước khi dùng cho
+        run lớn.
+        """
+        self.model.eval()
+        root = MCTSNode()
+
+        priors, _ = self._evaluate(board)
+        root.expand(board, priors)
+
+        if self.add_noise and root.children:
+            noise = np.random.dirichlet([self.dirichlet_alpha] * len(root.children))
+            for (move, child), n in zip(root.children.items(), noise):
+                child.prior = (
+                    (1 - self.dirichlet_epsilon) * child.prior
+                    + self.dirichlet_epsilon * float(n)
+                )
+
+        VL = 1  # virtual loss (số visit ảo cộng tạm dọc path)
+        done = 0
+        while done < self.num_simulations:
+            leaves = []  # (node, sim_board, path)
+            n_collect = min(self.num_parallel, self.num_simulations - done)
+            for _ in range(n_collect):
+                node = root
+                sim_board = board.copy()
+                path = [node]
+                while node.is_expanded and node.children:
+                    node = node.select_child(self.c_puct)
+                    sim_board.push(node.move)
+                    path.append(node)
+
+                if sim_board.is_game_over(claim_draw=True):
+                    value = -1.0 if sim_board.is_checkmate() else 0.0
+                    node.backup(value)  # backup cũng tăng visit → tự discourage
+                    done += 1
+                    continue
+
+                # Virtual loss: tạm cộng visit dọc path để leaf sau chọn nhánh khác
+                for nd in path:
+                    nd.visit_count += VL
+                leaves.append((node, sim_board, path))
+
+            if not leaves:
+                continue
+
+            boards = [b for _, b, _ in leaves]
+            probs_batch, vals = self._evaluate_batch(boards)
+            for (node, sim_board, path), probs, value in zip(leaves, probs_batch, vals):
+                # Gỡ virtual loss trước khi backup thật
+                for nd in path:
+                    nd.visit_count -= VL
+                node.expand(sim_board, probs)
+                node.backup(float(value))
+                done += 1
 
         return root
 

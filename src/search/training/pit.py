@@ -15,6 +15,7 @@ import torch
 
 from ...model.network import PolicyValueNet
 from ..mcts import MCTS
+from ..evaluation import adjudicate_result
 
 
 def play_match(
@@ -24,17 +25,25 @@ def play_match(
     num_simulations: int = 100,
     device: str = "cpu",
     max_moves: int = 200,
+    adjudication_margin: int = 100,
+    num_parallel: int = 1,
     verbose: bool = False,
 ) -> dict:
     """
     Đánh num_games ván, mỗi side đi white phân nửa số ván.
     Trả về dict với wins/losses/draws cho new_model.
+
+    Game chạm max_moves mà chưa chiếu hết sẽ được chấm theo material
+    (adjudicate_result) thay vì mặc định hòa — tránh thế "toàn hòa" làm pit
+    mất tín hiệu.
     """
     new_mcts = MCTS(
-        new_model, device=device, num_simulations=num_simulations, add_noise=False
+        new_model, device=device, num_simulations=num_simulations,
+        add_noise=False, num_parallel=num_parallel,
     )
     old_mcts = MCTS(
-        old_model, device=device, num_simulations=num_simulations, add_noise=False
+        old_model, device=device, num_simulations=num_simulations,
+        add_noise=False, num_parallel=num_parallel,
     )
 
     new_wins = 0
@@ -56,17 +65,25 @@ def play_match(
             board.push(move)
             move_num += 1
 
-        # Result từ góc nhìn của new_model
-        if board.is_checkmate():
-            white_lost = board.turn == chess.WHITE
-            if white_lost and new_plays_white:
-                old_wins += 1
-            elif (not white_lost) and (not new_plays_white):
-                old_wins += 1
+        # Result từ góc nhìn TRẮNG: +1 trắng thắng, -1 đen thắng, 0 hòa
+        if board.is_game_over(claim_draw=True):
+            if board.is_checkmate():
+                white_result = -1.0 if board.turn == chess.WHITE else 1.0
             else:
-                new_wins += 1
+                white_result = 0.0  # hòa tự nhiên
         else:
+            # Game bị cắt ở max_moves → chấm theo material
+            white_result = adjudicate_result(board, adjudication_margin)
+
+        # Quy về new_model
+        if white_result == 0.0:
             draws += 1
+        else:
+            white_won = white_result > 0
+            if white_won == new_plays_white:
+                new_wins += 1
+            else:
+                old_wins += 1
 
         if verbose:
             print(

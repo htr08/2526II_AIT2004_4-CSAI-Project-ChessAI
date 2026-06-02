@@ -24,6 +24,7 @@ from tqdm import tqdm
 from ...model.network import PolicyValueNet
 from .self_play import SelfPlayConfig, generate_self_play_data
 from .pit import play_match
+from .elo import update_elo
 
 
 @dataclass
@@ -37,6 +38,8 @@ class LoopConfig:
     value_weight: float = 1.0
     pit_games: int = 10
     pit_simulations: int = 100
+    pit_num_parallel: int = 1        # batch inference cho MCTS lúc pit (1 = như cũ)
+    adjudication_margin: int = 100   # material edge để chấm thắng khi game chạm max_moves
     accept_threshold: float = 0.55
     output_dir: str = "models/selfplay"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -103,6 +106,7 @@ def run_self_play_loop(
     cfg.self_play.device = cfg.device
 
     history = []
+    current_elo = 0.0  # ELO tương đối, model ban đầu = 0
     for it in range(1, cfg.num_iterations + 1):
         print(f"\n=== Iteration {it}/{cfg.num_iterations} ===")
         t0 = time.time()
@@ -126,6 +130,8 @@ def run_self_play_loop(
             num_games=cfg.pit_games,
             num_simulations=cfg.pit_simulations,
             device=cfg.device,
+            adjudication_margin=cfg.adjudication_margin,
+            num_parallel=cfg.pit_num_parallel,
         )
         print(
             f"[loop] pit: new {pit_result['new_wins']} - "
@@ -140,6 +146,20 @@ def run_self_play_loop(
         else:
             print(f"[loop] REJECT new model, giữ model cũ")
 
+        # ELO tương đối: cập nhật theo kết quả pit
+        elo = update_elo(
+            current_elo,
+            pit_result["new_wins"],
+            pit_result["old_wins"],
+            pit_result["draws"],
+            accepted,
+        )
+        current_elo = elo["current_elo"]
+        print(
+            f"[loop] ELO: candidate {elo['candidate_elo']:+.0f} "
+            f"(Δ{elo['elo_diff']:+.0f}) → kept {current_elo:+.0f}"
+        )
+
         dt = time.time() - t0
         torch.save(
             {
@@ -148,11 +168,13 @@ def run_self_play_loop(
                 "pit": pit_result,
                 "train_metrics": train_metrics,
                 "accepted": accepted,
+                "elo": current_elo,
+                "elo_detail": elo,
             },
             output_dir / f"iter_{it:03d}.pt",
         )
         torch.save(
-            {"model_state": current.state_dict(), "iteration": it},
+            {"model_state": current.state_dict(), "iteration": it, "elo": current_elo},
             output_dir / "latest.pt",
         )
 
@@ -162,9 +184,11 @@ def run_self_play_loop(
                 "train": train_metrics,
                 "pit": pit_result,
                 "accepted": accepted,
+                "elo": current_elo,
+                "elo_detail": elo,
                 "time_s": dt,
             }
         )
         print(f"[loop] iteration done in {dt:.0f}s")
 
-    return {"history": history}
+    return {"history": history, "final_elo": current_elo}

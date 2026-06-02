@@ -25,6 +25,7 @@ import torch
 from src.model.network import PolicyValueNet
 from src.search.minimax import search_best_move
 from src.search.mcts import search_best_move_mcts
+from src.search.opening_book import book_move
 
 
 def print_board(board: chess.Board, perspective_white: bool = True) -> None:
@@ -61,7 +62,13 @@ def bot_move(
     depth: int,
     simulations: int,
     device: str,
+    use_book: bool = False,
 ) -> chess.Move:
+    if use_book:
+        bm = book_move(board)
+        if bm is not None:
+            print(f"[bot] opening book → {bm.uci()}")
+            return bm
     if search_type == "minimax":
         move, score = search_best_move(board, depth=depth, model=model, device=device)
         print(f"[bot] minimax depth={depth} → {move.uci()}  (eval={score})")
@@ -86,6 +93,8 @@ def main():
     p.add_argument("--search", choices=["minimax", "mcts"], default="minimax")
     p.add_argument("--depth", type=int, default=3, help="Minimax depth")
     p.add_argument("--simulations", type=int, default=200, help="MCTS simulations")
+    p.add_argument("--opening-book", action="store_true",
+                   help="Dùng opening book cho bot ở đầu ván")
     p.add_argument("--device", default=None)
     args = p.parse_args()
 
@@ -133,7 +142,8 @@ def main():
             board.push(move)
         else:
             move = bot_move(
-                board, model, args.search, args.depth, args.simulations, device
+                board, model, args.search, args.depth, args.simulations, device,
+                use_book=args.opening_book,
             )
             board.push(move)
 

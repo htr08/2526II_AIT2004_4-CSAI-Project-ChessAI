@@ -24,6 +24,7 @@ from ...data.action_space import move_to_index
 from ...data.encode_board import board_to_tensor_perspective
 from ...model.network import PolicyValueNet, NUM_ACTIONS
 from ..mcts import MCTS
+from ..evaluation import adjudicate_result
 
 
 @dataclass
@@ -35,6 +36,8 @@ class SelfPlayConfig:
     c_puct: float = 1.5
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
+    adjudication_margin: int = 100   # material edge (cp) để chấm thắng khi cắt ở max_moves
+    num_parallel: int = 1            # số leaf gom batch trong MCTS (1 = như cũ)
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -52,6 +55,7 @@ def play_one_game(
         dirichlet_alpha=cfg.dirichlet_alpha,
         dirichlet_epsilon=cfg.dirichlet_epsilon,
         add_noise=True,
+        num_parallel=cfg.num_parallel,
     )
 
     board = chess.Board()
@@ -78,11 +82,15 @@ def play_one_game(
             print(f"  move {move_num}: {best_move.uci()}")
 
     # Game ended — compute final result từ góc nhìn TRẮNG
-    if board.is_checkmate():
-        # Side-to-move thua → bên kia thắng
-        white_result = -1.0 if board.turn == chess.WHITE else 1.0
+    if board.is_game_over(claim_draw=True):
+        if board.is_checkmate():
+            # Side-to-move thua → bên kia thắng
+            white_result = -1.0 if board.turn == chess.WHITE else 1.0
+        else:
+            white_result = 0.0  # hòa tự nhiên (stalemate, lặp, thiếu quân...)
     else:
-        white_result = 0.0  # draw
+        # Game bị cắt ở max_moves → chấm theo material thay vì mặc định hòa
+        white_result = adjudicate_result(board, cfg.adjudication_margin)
 
     # Backfill value_target cho mỗi sample (theo side-to-move tại thời điểm đó)
     samples = []

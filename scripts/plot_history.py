@@ -79,6 +79,7 @@ def plot_selfplay(selfplay_dir: str, output: str) -> None:
     accepted = []
     policy_losses = []
     value_losses = []
+    elos = []
 
     for path in iters:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
@@ -87,8 +88,11 @@ def plot_selfplay(selfplay_dir: str, output: str) -> None:
         accepted.append(ckpt["accepted"])
         policy_losses.append(ckpt["train_metrics"]["policy_loss"])
         value_losses.append(ckpt["train_metrics"]["value_loss"])
+        elos.append(ckpt.get("elo"))  # None nếu checkpoint cũ chưa có ELO
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    has_elo = all(e is not None for e in elos)
+    n_panels = 3 if has_elo else 2
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 4))
 
     colors = ["g" if a else "r" for a in accepted]
     axes[0].bar(iter_nums, win_rates, color=colors, alpha=0.7)
@@ -106,6 +110,14 @@ def plot_selfplay(selfplay_dir: str, output: str) -> None:
     axes[1].set_xlabel("Iteration")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
+
+    if has_elo:
+        axes[2].plot(iter_nums, elos, label="relative ELO", marker="o", color="purple")
+        axes[2].set_title("Relative ELO over iterations")
+        axes[2].set_xlabel("Iteration")
+        axes[2].set_ylabel("ELO (start = 0)")
+        axes[2].legend()
+        axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
     pathlib.Path(output).parent.mkdir(parents=True, exist_ok=True)

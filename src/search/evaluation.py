@@ -131,3 +131,28 @@ def evaluate_board(board: chess.Board) -> int:
             mirror = chess.square_mirror(square)
             score -= value + pst[mirror]
     return score
+
+
+# Ngưỡng material (centipawns) để xử "thắng" khi game bị cắt ở move cap.
+# 100 = hơn ~1 tốt. Dưới ngưỡng này coi như hòa.
+ADJUDICATION_MARGIN = 100
+
+
+def adjudicate_result(board: chess.Board, margin: int = ADJUDICATION_MARGIN) -> float:
+    """
+    Chấm kết quả một ván từ góc nhìn TRẮNG, trả về 1.0 / -1.0 / 0.0.
+
+    Mục đích: phá thế "toàn hòa" trong self-play/pit khi game chạm giới hạn
+    số nước (max_moves) mà chưa chiếu hết. Thay vì mặc định hòa, ta chấm theo
+    material + PST: bên nào hơn rõ (|score| > margin) thì coi như thắng.
+
+    - Checkmate: ±1.0 (đã đúng dấu sẵn trong evaluate_board → ±100000).
+    - Hòa tự nhiên (stalemate, thiếu quân, 50-move, lặp 3 lần): 0.0.
+    - Còn lại (game bị cắt): chấm theo material, |score| ≤ margin → hòa.
+    """
+    score = evaluate_board(board)
+    if score > margin:
+        return 1.0
+    if score < -margin:
+        return -1.0
+    return 0.0
