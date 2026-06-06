@@ -1,1 +1,1 @@
-# 2526II_AIT2004-_4-CSAI-Project-ChessGame-
+# 2526II_AIT2004#_4-CSAI-Project-ChessAI
