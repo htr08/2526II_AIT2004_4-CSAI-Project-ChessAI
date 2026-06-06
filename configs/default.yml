@@ -1,0 +1,17 @@
+data:
+  raw_pgn:   data/raw/lichess_elite_2022-03.pgn
+  processed: data/processed/train.pt
+  min_elo:   1800
+  max_positions: 200000
+
+train:
+  mode:       supervised        # supervised | selfplay
+  epochs:     20
+  batch_size: 512
+  lr:         1e-3
+  val_ratio:  0.1
+
+checkpoint:
+  dir:    checkpoints
+  policy: checkpoints/best_policy.pt
+  dual:   checkpoints/best_dual.pt

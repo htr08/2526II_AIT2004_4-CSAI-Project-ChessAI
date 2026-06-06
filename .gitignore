@@ -1,0 +1,13 @@
+venv/
+checkpoints/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+*.pt
+*.pgn
+*.bin
+*.exe
+notebooks/
+logs/
+bin/

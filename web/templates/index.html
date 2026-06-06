@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess AI Demo</title>
+  <link rel="stylesheet"
+        href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a2e; color: #eee; font-family: sans-serif;
+           display: flex; flex-direction: column; align-items: center;
+           min-height: 100vh; padding: 24px 16px; }
+    h1 { font-size: 1.4rem; margin-bottom: 4px; letter-spacing: 1px; }
+    #subtitle { font-size: 0.8rem; color: #aaa; margin-bottom: 20px; }
+    #board-wrap { position: relative; width: min(480px, 96vw); }
+    #board { width: 100%; }
+
+    /* ── board color themes (override chessboard.js square colors) ── */
+    #board-wrap.theme-brown .white-1e1d7 { background: #f0d9b5 !important; }
+    #board-wrap.theme-brown .black-3c85d { background: #b58863 !important; }
+    #board-wrap.theme-blue  .white-1e1d7 { background: #dee3e6 !important; }
+    #board-wrap.theme-blue  .black-3c85d { background: #8ca2ad !important; }
+    #board-wrap.theme-green .white-1e1d7 { background: #eeeed2 !important; }
+    #board-wrap.theme-green .black-3c85d { background: #769656 !important; }
+    #board-wrap.theme-gray  .white-1e1d7 { background: #e8e8e8 !important; }
+    #board-wrap.theme-gray  .black-3c85d { background: #888888 !important; }
+
+    .highlight-selected { box-shadow: inset 0 0 0 9999px rgba(255,214,0,0.45) !important; }
+
+    /* ── move hints (live INSIDE each square div → self-center) ── */
+    .hint-dot, .hint-capture, .hint-x {
+      position: absolute; pointer-events: none; box-sizing: border-box; z-index: 5;
+    }
+    .hint-dot {
+      width: 30%; height: 30%; top: 35%; left: 35%;
+      border-radius: 50%; background: rgba(50,50,50,0.45);
+    }
+    .hint-capture {
+      width: 100%; height: 100%; top: 0; left: 0;
+      border-radius: 50%; border: 6px solid rgba(50,50,50,0.4); background: transparent;
+    }
+    .hint-x { inset: 16%; opacity: 0.45; }
+    .hint-x::before, .hint-x::after {
+      content: ''; position: absolute; top: 50%; left: 0;
+      width: 100%; height: 16%; background: #333; border-radius: 3px;
+    }
+    .hint-x::before { transform: translateY(-50%) rotate(45deg); }
+    .hint-x::after  { transform: translateY(-50%) rotate(-45deg); }
+
+    /* ── promotion modal ── */
+    #promo-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      justify-content: center; align-items: center;
+    }
+    #promo-overlay.active { display: flex; }
+    #promo-box {
+      background: #1e2a3a; border-radius: 12px; padding: 20px 24px;
+      text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+    #promo-box h3 { font-size: 1rem; margin-bottom: 14px; color: #ddd; }
+    .promo-pieces { display: flex; gap: 10px; justify-content: center; }
+    .promo-btn {
+      width: 72px; height: 72px; border: 2px solid #444; border-radius: 8px;
+      background: #2a3a4a; cursor: pointer; padding: 0;
+      transition: border-color .15s, background .15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .promo-btn:hover { border-color: #ffd700; background: #3a4a5a; }
+    .promo-btn img { width: 52px; height: 52px; }
+    .promo-label { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
+
+    #status { margin: 14px 0 10px; font-size: 1rem; min-height: 1.4em;
+              text-align: center; color: #ddd; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+             font-size: 0.9rem; font-weight: 600; transition: opacity .15s; }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .35; cursor: default; }
+    #btnNew   { background: #4caf50; color: #fff; }
+    #btnSide  { background: #607d8b; color: #fff; }
+    #btnFlip  { background: #2196f3; color: #fff; }
+    #btnTheme { background: #9c27b0; color: #fff; }
+    #btnUndo, #btnRedo { background: #ff9800; color: #fff; font-size: 1.1rem;
+                         padding: 8px 14px; }
+
+    #history { margin-top: 18px; max-height: 120px; overflow-y: auto;
+               width: min(480px, 96vw); background: #16213e;
+               border-radius: 8px; padding: 8px 12px;
+               font-size: 0.78rem; color: #bbb; line-height: 1.8; }
+  </style>
+</head>
+<body>
+  <h1>Chess AI</h1>
+  <div id="subtitle">You play White · AI plays Black</div>
+  <div id="board-wrap" class="theme-brown">
+    <div id="board"></div>
+  </div>
+  <!-- Promotion picker -->
+  <div id="promo-overlay">
+    <div id="promo-box">
+      <h3>Promote pawn to…</h3>
+      <div class="promo-pieces" id="promo-pieces"></div>
+    </div>
+  </div>
+
+  <div id="status">Your turn</div>
+  <div class="btn-row">
+    <button id="btnUndo" onclick="undoMove()" title="Undo (←)">◀</button>
+    <button id="btnRedo" onclick="redoMove()" title="Redo (→)">▶</button>
+    <button id="btnNew"   onclick="resetGame()">New Game</button>
+    <button id="btnSide"  onclick="switchSide()">⚄ Play Black</button>
+    <button id="btnFlip"  onclick="flipBoard()">Flip Board</button>
+    <button id="btnTheme" onclick="cycleTheme()">🎨 Theme</button>
+  </div>
+  <div id="history"></div>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script>
+    const FILES = 'abcdefgh';
+    let game = new Chess();
+    let board;
+    let busy = false;
+    let selectedSq = null;
+    let redoStack = [];                 // each entry = [playerMove, aiMove?]
+    let playerColor = 'w';              // 'w' = play White, 'b' = play Black
+    let pendingPromo = null;            // { from, to } waiting for piece choice
+
+    // ── status / history ────────────────────────────────────────
+    function setStatus(msg, thinking) {
+      const spinner = thinking
+        ? ' <span style="display:inline-block;width:13px;height:13px;border:2px solid #aaa;border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;"></span>'
+        : '';
+      $('#status').html(msg + spinner);
+    }
+
+    function updateHistory() {
+      const moves = game.history();
+      if (!moves.length) { $('#history').text(''); }
+      else {
+        let html = '';
+        for (let i = 0; i < moves.length; i += 2) {
+          const n = Math.floor(i / 2) + 1;
+          html += `<span style="color:#888">${n}.</span> ${moves[i]}${moves[i+1] ? ' ' + moves[i+1] : ''} &nbsp;`;
+        }
+        $('#history').html(html).scrollTop(9999);
+      }
+      $('#btnRedo').prop('disabled', redoStack.length === 0);
+      $('#btnUndo').prop('disabled', game.history().length === 0);
+    }
+
+    // ── hint computation: dots / captures / X along movement lines ─
+    function computeHints(sq) {
+      const piece = game.get(sq);
+      if (!piece) return [];
+      const me = piece.color;
+      const legal = {};
+      game.moves({ square: sq, verbose: true }).forEach(m => { legal[m.to] = m; });
+
+      const f = FILES.indexOf(sq[0]);
+      const r = parseInt(sq[1]);
+      const out = [];
+
+      const inb = (cf, cr) => cf >= 0 && cf < 8 && cr >= 1 && cr <= 8;
+
+      function ray(df, dr) {
+        let cf = f + df, cr = r + dr;
+        while (inb(cf, cr)) {
+          const t = FILES[cf] + cr;
+          const occ = game.get(t);
+          if (occ && occ.color === me) break;                                      // own piece blocks
+          if (legal[t]) out.push({ sq: t, type: occ ? 'capture' : 'dot' });
+          if (occ) break;                                                          // enemy stops the ray
+          cf += df; cr += dr;
+        }
+      }
+      function step(df, dr) {
+        const cf = f + df, cr = r + dr;
+        if (!inb(cf, cr)) return;
+        const t = FILES[cf] + cr;
+        const occ = game.get(t);
+        if (occ && occ.color === me) return;
+        if (legal[t]) out.push({ sq: t, type: occ ? 'capture' : 'dot' });
+      }
+
+      const T = piece.type;
+      if (T === 'r' || T === 'q') { ray(0,1); ray(0,-1); ray(1,0); ray(-1,0); }
+      if (T === 'b' || T === 'q') { ray(1,1); ray(1,-1); ray(-1,1); ray(-1,-1); }
+      if (T === 'n') { [[1,2],[2,1],[2,-1],[1,-2],[-1,-2],[-2,-1],[-2,1],[-1,2]].forEach(o => step(o[0],o[1])); }
+      if (T === 'k') {
+        [[0,1],[1,1],[1,0],[1,-1],[0,-1],[-1,-1],[-1,0],[-1,1]].forEach(o => step(o[0],o[1]));
+        // castling targets aren't adjacent → add any remaining legal squares
+        Object.keys(legal).forEach(t => { if (!out.find(h => h.sq === t)) out.push({ sq: t, type: 'dot' }); });
+      }
+      if (T === 'p') {
+        Object.values(legal).forEach(m => {
+          const cap = m.flags.includes('c') || m.flags.includes('e');
+          out.push({ sq: m.to, type: cap ? 'capture' : 'dot' });
+        });
+      }
+      return out;
+    }
+
+    function clearHints() {
+      $('#board-wrap .hint-dot, #board-wrap .hint-capture, #board-wrap .hint-x').remove();
+      $('.highlight-selected').removeClass('highlight-selected');
+      selectedSq = null;
+    }
+
+    function showHints(sq) {
+      clearHints();
+      selectedSq = sq;
+      $(`#board-wrap [data-square="${sq}"]`).addClass('highlight-selected');
+
+      computeHints(sq).forEach(h => {
+        const $sq = $(`#board-wrap [data-square="${h.sq}"]`);
+        $sq.css('position', 'relative');
+        const cls = h.type === 'capture' ? 'hint-capture' : h.type === 'x' ? 'hint-x' : 'hint-dot';
+        $('<div>').addClass(cls).appendTo($sq);
+      });
+    }
+
+    // ── click to move ───────────────────────────────────────────
+    // ── promotion dialog ────────────────────────────────────────
+    function isPromoMove(from, to) {
+      const p = game.get(from);
+      if (!p || p.type !== 'p') return false;
+      const toRank = parseInt(to[1]);
+      return (p.color === 'w' && toRank === 8) || (p.color === 'b' && toRank === 1);
+    }
+
+    function showPromoDialog(from, to) {
+      pendingPromo = { from, to };
+      const color = playerColor;
+      const pieces = [
+        { code: 'q', label: 'Queen'  },
+        { code: 'r', label: 'Rook'   },
+        { code: 'b', label: 'Bishop' },
+        { code: 'n', label: 'Knight' },
+      ];
+      const imgCode = p => (color === 'w' ? 'w' : 'b') + p.toUpperCase();
+      $('#promo-pieces').html(
+        pieces.map(p => `
+          <div style="text-align:center">
+            <button class="promo-btn" data-promo="${p.code}">
+              <img src="/static/pieces/${imgCode(p.code)}.png" alt="${p.label}">
+            </button>
+            <div class="promo-label">${p.label}</div>
+          </div>`).join('')
+      );
+      $('#promo-overlay').addClass('active');
+    }
+
+    $('#promo-overlay').on('click', '.promo-btn', function () {
+      const piece = $(this).data('promo');
+      $('#promo-overlay').removeClass('active');
+      if (!pendingPromo) return;
+      const { from, to } = pendingPromo;
+      pendingPromo = null;
+      const move = game.move({ from, to, promotion: piece });
+      if (!move) return;
+      redoStack = [];
+      clearHints();
+      board.position(game.fen());
+      updateHistory();
+      if (game.game_over()) { setStatus('Game over: ' + gameResult()); return; }
+      askAI();
+    });
+
+    function onSquareClick(sq) {
+      if (busy || game.turn() !== playerColor) return;
+
+      if (selectedSq) {
+        if (sq === selectedSq) { clearHints(); return; }
+
+        // Check if this would be a promotion move
+        if (isPromoMove(selectedSq, sq)) {
+          // Validate it's actually legal before showing dialog
+          const testMove = game.move({ from: selectedSq, to: sq, promotion: 'q' });
+          if (testMove) {
+            game.undo();
+            clearHints();
+            showPromoDialog(selectedSq, sq);
+            return;
+          }
+        }
+
+        const move = game.move({ from: selectedSq, to: sq, promotion: 'q' });
+        if (move) {
+          redoStack = [];
+          clearHints();
+          board.position(game.fen());
+          updateHistory();
+          if (game.game_over()) { setStatus('Game over: ' + gameResult()); return; }
+          askAI();
+          return;
+        }
+        const piece = game.get(sq);
+        if (piece && piece.color === playerColor) { showHints(sq); return; }
+        clearHints();
+        return;
+      }
+
+      const piece = game.get(sq);
+      if (piece && piece.color === playerColor) showHints(sq);
+    }
+
+    $('#board-wrap').on('click', '[data-square]', function () {
+      onSquareClick($(this).attr('data-square'));
+    });
+
+    // ── AI ──────────────────────────────────────────────────────
+    function askAI() {
+      busy = true;
+      setStatus('AI thinking…', true);
+      setTimeout(() => {
+        $.ajax({
+          url: '/move', method: 'POST', contentType: 'application/json',
+          data: JSON.stringify({ fen: game.fen() }),
+          success: res => {
+            if (res.error) { setStatus('Error: ' + res.error); busy = false; return; }
+            const aiMove = game.move({ from: res.move.slice(0,2), to: res.move.slice(2,4), promotion: 'q' });
+            board.position(game.fen());
+            updateHistory();
+            busy = false;
+            setStatus(res.over ? 'Game over: ' + res.result : 'Your turn');
+          },
+          error: () => { setStatus('Server error — is the Flask app running?'); busy = false; }
+        });
+      }, 600);
+    }
+
+    function gameResult() {
+      if (game.in_checkmate()) return game.turn() === 'w' ? 'Black wins' : 'White wins';
+      if (game.in_draw()) return 'Draw';
+      return '?';
+    }
+
+    // ── undo / redo ─────────────────────────────────────────────
+    function undoMove() {
+      if (busy || game.history().length === 0) return;
+      clearHints();
+      const undone = [];
+      // if it's the player's turn, the last ply was the AI: undo it first
+      if (game.turn() === playerColor) { const m = game.undo(); if (m) undone.push(m); }
+      // undo the player's ply
+      if (game.history().length > 0) { const m = game.undo(); if (m) undone.push(m); }
+      if (undone.length) redoStack.push(undone.reverse());   // store as [player, ai]
+      board.position(game.fen());
+      updateHistory();
+      setStatus('Your turn');
+    }
+
+    function redoMove() {
+      if (busy || redoStack.length === 0) return;
+      clearHints();
+      const pair = redoStack.pop();
+      pair.forEach(m => game.move({ from: m.from, to: m.to, promotion: m.promotion }));
+      board.position(game.fen());
+      updateHistory();
+      setStatus(game.game_over() ? 'Game over: ' + gameResult() : 'Your turn');
+    }
+
+    // ── controls ───────────────────────────────────────────────
+    function resetGame() {
+      game.reset(); redoStack = []; clearHints();
+      board.orientation(playerColor === 'w' ? 'white' : 'black');
+      board.start();
+      busy = false;
+      updateHistory();
+      // White always moves first; if the player is Black, the AI opens.
+      if (game.turn() !== playerColor) askAI();
+      else setStatus('Your turn');
+    }
+
+    function switchSide() {
+      playerColor = playerColor === 'w' ? 'b' : 'w';
+      $('#btnSide').html(playerColor === 'w' ? '⚄ Play Black' : '⚅ Play White');
+      $('#subtitle').text(playerColor === 'w'
+        ? 'You play White · AI plays Black'
+        : 'You play Black · AI plays White');
+      resetGame();   // new game with the chosen side
+    }
+
+    function flipBoard() { clearHints(); board.flip(); }
+
+    const THEMES = ['theme-brown', 'theme-blue', 'theme-green', 'theme-gray'];
+    let themeIdx = 0;
+    function cycleTheme() {
+      themeIdx = (themeIdx + 1) % THEMES.length;
+      $('#board-wrap').removeClass(THEMES.join(' ')).addClass(THEMES[themeIdx]);
+    }
+
+    // keyboard arrows
+    $(document).on('keydown', e => {
+      if (e.key === 'ArrowLeft')  { undoMove(); }
+      if (e.key === 'ArrowRight') { redoMove(); }
+    });
+
+    // ── init ───────────────────────────────────────────────────
+    board = Chessboard('board', {
+      draggable: false,
+      position: 'start',
+      pieceTheme: '/static/pieces/{piece}.png',
+    });
+    updateHistory();
+  </script>
+</body>
+</html>
