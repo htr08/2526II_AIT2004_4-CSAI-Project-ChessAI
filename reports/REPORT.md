@@ -38,6 +38,28 @@ Tổng tham số ≈ **1,43 triệu** (chạy được trên CPU). Đây là con
 
 **Opening book.** `src/search/opening_book.py` hardcode ~15 khai cuộc phổ biến (Ruy Lopez, Sicilian, QGD, King's Indian...). Khi bật (`play_cli.py --opening-book`), bot đi theo sách lúc đầu ván rồi mới chuyển sang search — giúp khai cuộc chắc tay hơn.
 
+### 2.1. Cấu trúc mã nguồn (module-by-module)
+
+| File | Vai trò |
+|------|---------|
+| `src/data/encode_board.py` | Board → tensor 12×8×8 one-hot + perspective flip cho Đen-to-move. |
+| `src/data/action_space.py` | Move ↔ index (4096 = from×64+to); mask nước hợp lệ. |
+| `src/data/pgn_parser.py` | Đọc PGN/.pgn.zst → mẫu `(fen, move, result)` lưu `.pt`. |
+| `src/data/dataset.py` | PyTorch `Dataset` + DataLoader, split train/val 90/10. |
+| `src/model/network.py` | `PolicyValueNet` (trunk + policy head + value head) và `PolicyNet`. |
+| `src/search/evaluation.py` | Eval tĩnh material+PST; `adjudicate_result` (chấm material khi cắt ván). |
+| `src/search/minimax.py` | Negamax + alpha-beta; move ordering bằng policy net. |
+| `src/search/mcts.py` | MCTS PUCT; batch inference (`num_parallel`) + virtual loss. |
+| `src/search/opening_book.py` | ~15 khai cuộc hardcode; `book_move(board)`. |
+| `src/search/training/supervised.py` | Train supervised trên PGN (CE policy + MSE value). |
+| `src/search/training/self_play.py` | Sinh self-play games bằng MCTS. |
+| `src/search/training/pit.py` | Đấu 2 model, chấm thắng/hòa (có adjudication). |
+| `src/search/training/self_play_loop.py` | Vòng lặp generate→retrain→pit→giữ; log ELO. |
+| `src/search/training/elo.py` | Tính ELO tương đối từ kết quả pit. |
+| `app.py` | Web app Flask (chơi với bot trong trình duyệt). |
+| `scripts/*.py` | Entry-point: `parse_pgn`, `train_supervised`, `run_self_play`, `play_cli`, `benchmark_stockfish`, `plot_history`. |
+| `tests/*.py` | Unit test (pytest): encode, action space, network, search, pipeline, adjudication+ELO, opening book. |
+
 ---
 
 ## 3. Dữ liệu
@@ -68,7 +90,7 @@ Train 10 epoch, AdamW lr 1e-3 + cosine, batch 256, loss = CE(policy) + 1·MSE(va
 
 **Nhận xét.** Policy học tốt: top-1 33,5% nghĩa là cứ 3 thế cờ thì model đoán đúng 1 nước y hệt chuyên gia; top-5 66% nghĩa là nước đúng nằm trong 5 gợi ý đầu 2/3 số lần. Val loss chững lại từ epoch 8 trong khi train top-1 vẫn tăng (42,4%) → bắt đầu overfit nhẹ; epoch 9 là điểm tốt nhất và đã được lưu tự động vào `best.pt`.
 
-**Ảnh hưởng kích thước dữ liệu (so sánh quan trọng cho báo cáo):**
+**Ảnh hưởng kích thước dữ liệu:**
 
 | | 2.000 ván (5 epoch) | 20.000 ván (10 epoch) |
 |---|---|---|
@@ -188,4 +210,28 @@ python scripts/run_self_play.py --initial-model models/best.pt \
 # 4. Vẽ biểu đồ (gồm đường ELO)
 python scripts/plot_history.py --ckpt models/best.pt --output reports/supervised.png
 python scripts/plot_history.py --selfplay-dir models/selfplay --output reports/selfplay.png
+
+# 5. Benchmark vs Stockfish (cần binary Stockfish)
+python scripts/benchmark_stockfish.py --model models/best.pt --stockfish stockfish.exe \
+    --games 10 --stockfish-depth 2 --search mcts --simulations 200
 ```
+
+### Hai cách demo chơi với bot
+
+**Web app (Flask):**
+
+```bash
+pip install flask
+python app.py --model models/best.pt          # rồi mở http://localhost:5000
+```
+Options: `--search {minimax,mcts}`, `--depth`, `--simulations`, `--no-book`, `--host`, `--port`.
+Không có model / không có torch → tự fallback minimax + eval tĩnh.
+
+**Terminal (CLI):**
+
+```bash
+python scripts/play_cli.py --model models/best.pt --search minimax --depth 3
+python scripts/play_cli.py --model models/best.pt --color black --opening-book
+python scripts/play_cli.py --model models/best.pt --search mcts --simulations 200
+```
+Trong game nhập nước đi UCI (`e2e4`, `g1f3`, `e7e8q`); lệnh `undo` / `fen` / `quit`.

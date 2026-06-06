@@ -34,10 +34,10 @@ Ký hiệu: `[x]` = xong + verify · `[~]` = code xong, cần môi trường ngo
 - [x] **18. Tối ưu tốc độ inference** — batch inference cho MCTS (`--num-parallel`). (ONNX optional, bỏ.)
 - [x] **19. Opening book** — `src/search/opening_book.py` (~15 khai cuộc) + `play_cli --opening-book`, có test 4/4 pass.
 - [x] **20. Visualize training curves** — đã xuất `reports/supervised.png` + `reports/selfplay.png` (gồm đường ELO).
-- [x] 21. Chơi thử với người (CLI) — `play_cli.py`.
+- [x] 21. Chơi thử với người (CLI) — `scripts/play_cli.py` (UCI, undo/fen/quit, minimax|mcts, opening book).
 - [x] **22. Benchmark Stockfish** — đã chạy 10 ván vs Stockfish depth-2: bot **3,0/10 (30%)** — hòa 6, thua 4, thắng 0; ELO ước lượng thô ≈ 1353.
 - [x] **23. Báo cáo** — `reports/REPORT.md` (thay slide): kiến trúc, kết quả, Minimax-vs-MCTS, self-play, bài học, hạn chế.
-- [x] 24. Demo live — CLI demo chạy được.
+- [x] 24. Demo live — **2 cách**: web app Flask (`app.py`, chơi trong trình duyệt, đã test endpoint) + CLI (`play_cli.py`).
 
 ---
 

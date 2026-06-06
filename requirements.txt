@@ -13,5 +13,8 @@ tensorboard>=2.13.0
 # Optional: parsing .pgn.zst files
 zstandard>=0.21.0
 
+# Web UI demo (app.py)
+flask>=3.0.0
+
 # Testing
 pytest>=7.4.0

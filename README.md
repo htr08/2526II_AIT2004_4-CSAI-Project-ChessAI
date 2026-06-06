@@ -24,6 +24,7 @@ PGN games  ->  Encode 12x8x8  ->  CNN (Policy + Value heads)
 
 ```
 .
++-- app.py                       # Flask web app (choi voi bot trong trinh duyet)
 +-- src/
 |   +-- data/
 |   |   +-- encode_board.py      # Board -> tensor 12x8x8 + perspective flip
@@ -33,27 +34,29 @@ PGN games  ->  Encode 12x8x8  ->  CNN (Policy + Value heads)
 |   +-- model/
 |   |   +-- network.py           # PolicyValueNet (CNN + residual blocks)
 |   +-- search/
-|   |   +-- evaluation.py        # Material + PST static eval
+|   |   +-- evaluation.py        # Material + PST static eval + adjudicate_result
 |   |   +-- minimax.py           # Negamax + Alpha-Beta + policy ordering
-|   |   +-- mcts.py              # MCTS voi PUCT, neural guide
-|   +-- training/
-|   |   +-- supervised.py        # Supervised pretrain tren PGN data
-|   |   +-- self_play.py         # Sinh self-play games
-|   |   +-- pit.py               # Doi dau hai phien ban model
-|   |   +-- self_play_loop.py    # Vong lap self-play hoan chinh
+|   |   +-- mcts.py              # MCTS voi PUCT + batch inference (num_parallel)
+|   |   +-- opening_book.py      # ~15 khai cuoc hardcode
+|   |   +-- training/            # (luu y: nam trong src/search/, khong phai src/)
+|   |   |   +-- supervised.py        # Supervised pretrain tren PGN data
+|   |   |   +-- self_play.py         # Sinh self-play games (MCTS)
+|   |   |   +-- pit.py               # Doi dau hai phien ban model
+|   |   |   +-- self_play_loop.py    # Vong lap self-play hoan chinh
+|   |   |   +-- elo.py               # ELO tuong doi tu ket qua pit
 |   +-- utils/                   # (helper modules, hien trong)
 +-- tests/                       # Unit tests (pytest)
 +-- scripts/                     # Entry-point scripts
 |   +-- parse_pgn.py
 |   +-- train_supervised.py
 |   +-- run_self_play.py
-|   +-- play_cli.py
+|   +-- play_cli.py              # Demo CLI (terminal)
 |   +-- benchmark_stockfish.py
 |   +-- plot_history.py
 +-- data/{raw,processed}/        # PGN + .pt files (gitignored)
 +-- models/                      # Checkpoints (gitignored)
 +-- notebooks/                   # Exploration
-+-- reports/                     # Plots + bao cao
++-- reports/                     # REPORT.md, CHECKLIST.md, plots (.png)
 +-- requirements.txt
 +-- .gitignore
 ```
@@ -120,12 +123,46 @@ python scripts/run_self_play.py \
     --simulations 100 \
     --train-epochs 2 \
     --pit-games 10 \
+    --adjudication-margin 100 \
+    --num-parallel 8 \
     --output-dir models/selfplay
 ```
 
 Moi iteration: 20 self-play games -> retrain candidate -> pit vs current 10 games -> giu candidate neu thang >=55% (loai tru hoa).
 
+Cac flag moi:
+- `--adjudication-margin 100`: game cham `max_moves` se duoc cham theo material (chong "toan hoa"), thay vi mac dinh hoa.
+- `--num-parallel 8`: bat batch inference cho MCTS (gom nhieu leaf danh gia 1 lan) -> nhanh hon nhieu tren GPU. Mac dinh 1 = nhu cu.
+
+Moi iteration ghi log ELO tuong doi (model dau = 0) vao `iter_*.pt` de ve bang `plot_history.py`.
+
 ### Buoc 5: Choi voi bot
+
+Co **2 cach demo**: web app (Flask, click chuot) hoac terminal (CLI).
+
+#### 5a. Web app (Flask) — khuyen dung de demo
+
+```bash
+pip install flask
+python app.py --model models/best.pt
+# rồi mo http://localhost:5000
+```
+
+Ban co cho keo/click quan ngay trong trinh duyet, bot tu tra loi. Bam "Van moi"
+de choi lai, chon quan Trang/Den o dropdown.
+
+Options cua `app.py`:
+
+| Flag | Mac dinh | Y nghia |
+|------|----------|---------|
+| `--model PATH` | `models/best.pt` | Checkpoint dung cho bot. Khong co file -> minimax + eval tinh (khong can torch). |
+| `--search {minimax,mcts}` | `minimax` | Thuat toan search cho bot. `mcts` can model. |
+| `--depth N` | `3` | Do sau minimax. |
+| `--simulations N` | `200` | So MCTS simulations (khi `--search mcts`). |
+| `--no-book` | (tat) | Tat opening book (mac dinh bat). |
+| `--host` / `--port` | `127.0.0.1` / `5000` | Dia chi server. |
+
+#### 5b. Terminal (CLI)
 
 ```bash
 # Minimax (nhanh, khong can GPU)
@@ -133,7 +170,13 @@ python scripts/play_cli.py --model models/best.pt --search minimax --depth 3
 
 # MCTS (manh hon, cham hon)
 python scripts/play_cli.py --model models/selfplay/latest.pt --search mcts --simulations 200
+
+# Choi quan Den / bat opening book
+python scripts/play_cli.py --model models/best.pt --color black --opening-book
 ```
+
+Options cua `play_cli.py`: `--model`, `--color {white,black}`, `--search {minimax,mcts}`,
+`--depth`, `--simulations`, `--opening-book`, `--device`.
 
 Trong game: nhap nuoc di UCI (vd `e2e4`, `g1f3`, `e7e8q` de phong hau). Lenh khac: `undo`, `fen`, `quit`.
 
