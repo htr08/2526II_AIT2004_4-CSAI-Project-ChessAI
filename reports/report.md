@@ -153,10 +153,10 @@ Input (B, 17, 8, 8)
   → Conv2d(17, 64, 3, padding=1) → BN → ReLU
   → Conv2d(64, 128, 3, padding=1) → BN → ReLU
   → Conv2d(128, 128, 3, padding=1) → BN → ReLU
-  → Conv2d(128, 128, 3, padding=1) → BN → ReLU
+  → Conv2d(128, 64, 3, padding=1) → BN → ReLU
   → Flatten
-  → Linear(8192, 1024) → ReLU → Dropout(0.3)
-  → Linear(1024, 4544)
+  → Linear(4096, 256) → ReLU → Dropout(0.3)
+  → Linear(256, 4544)
 Output: (B, 4544) logits
 ```
 
@@ -169,8 +169,8 @@ Input (B, 17, 8, 8)
      (Conv → BN → ReLU → Conv → BN + skip → ReLU)
 
 Policy Head:
-  → Conv2d(128, 2, 1) → BN → ReLU → Flatten
-  → Linear(128, 4544)
+  → Conv2d(128, 32, 1) → BN → ReLU → Flatten
+  → Linear(2048, 4544)
 
 Value Head:
   → Conv2d(128, 1, 1) → BN → ReLU → Flatten
@@ -193,7 +193,7 @@ MCTSNode:
   W          # tổng giá trị tích lũy
   Q = W/N    # giá trị trung bình
   P          # prior probability từ policy head
-  children   # dict[move → MCTSNode]
+  children   # list[MCTSNode]
   expanded   # đã mở rộng chưa
 ```
 
@@ -277,7 +277,7 @@ Hệ thống sử dụng **Polyglot opening book** để tra cứu nước đi k
 
 | Tham số | Giá trị | Ý nghĩa |
 |---|---|---|
-| `c_puct` | 1.0 | Hệ số cân bằng exploration/exploitation |
+| `c_puct` | 1.5 | Hệ số cân bằng exploration/exploitation |
 | `n_sims` | 50–200 | Số simulation mỗi nước đi |
 | `dirichlet_alpha` | 0.3 | Tham số nhiễu Dirichlet tại root |
 | `dirichlet_eps` | 0.25 | Tỉ lệ trộn nhiễu vào prior |
