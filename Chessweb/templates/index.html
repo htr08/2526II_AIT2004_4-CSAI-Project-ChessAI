@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChessBot AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0e0f11;
+    --surface:   #16181c;
+    --border:    #2a2d35;
+    --light-sq:  #c8b88a;
+    --dark-sq:   #6b4f3a;
+    --accent:    #7dd6a8;
+    --accent-dim:#3d7a5e;
+    --text:      #e8e4dc;
+    --muted:     #6b7280;
+    --danger:    #e07070;
+    --selected:  rgba(125, 214, 168, 0.45);
+    --hint:      rgba(125, 214, 168, 0.22);
+    --lastmove:  rgba(255, 214, 100, 0.30);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    gap: 28px;
+  }
+
+  header {
+    text-align: center;
+  }
+
+  header h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  header h1 span { color: var(--accent); font-style: italic; }
+
+  header p {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-top: 4px;
+    letter-spacing: 0.04em;
+  }
+
+  .main {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 900px;
+  }
+
+  /* ── Board ── */
+  .board-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .board-outer {
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    width: min(480px, 90vw);
+    height: min(480px, 90vw);
+    user-select: none;
+  }
+
+  .sq {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: filter 0.12s;
+  }
+
+  .sq.light { background: var(--light-sq); }
+  .sq.dark  { background: var(--dark-sq); }
+
+  /* Highlights dùng pseudo-element với pointer-events:none → không ảnh hưởng layout */
+  .sq::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 0;
+    transition: background 0.1s;
+  }
+  .sq.selected::before  { background: var(--selected); }
+  .sq.last-move::before { background: var(--lastmove); }
+  /* hint: chấm tròn ở giữa */
+  .sq.hint::before {
+    background: radial-gradient(circle, var(--accent-dim) 28%, transparent 29%);
+  }
+  /* hint có quân: viền tròn */
+  .sq.hint.has-piece::before {
+    background: radial-gradient(circle, transparent 42%, var(--accent-dim) 43%, var(--accent-dim) 56%, transparent 57%);
+  }
+
+  .sq .coord {
+    position: absolute;
+    font-size: 0.58rem;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    color: rgba(0,0,0,0.35);
+    line-height: 1;
+  }
+  .sq.light .coord { color: rgba(107,79,58,0.5); }
+  .sq.dark  .coord { color: rgba(200,184,138,0.45); }
+  .coord-file { bottom: 2px; right: 3px; }
+  .coord-rank { top: 2px; left: 3px; }
+
+    .piece {
+        /* Thu nhỏ font-size lại một chút để vừa vặn hơn */
+        font-size: clamp(1.4rem, 4.5vw, 2.3rem); 
+        line-height: 1;
+        position: absolute; /* Đổi từ relative sang absolute để không tác động đến kích thước ô (.sq) */
+        z-index: 3;
+        pointer-events: none;
+        transition: transform 0.08s;
+        
+        /* Căn giữa tuyệt đối quân cờ trong ô */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }
+  /* Quân trắng: trắng với viền đen rõ */
+  .piece.white {
+    color: #ffffff;
+    text-shadow:
+      0 0 2px #000, 0 0 3px #000,
+      1px 1px 0 #333, -1px -1px 0 #333,
+      1px -1px 0 #333, -1px 1px 0 #333;
+  }
+  /* Quân đen: đen với viền sáng */
+  .piece.black {
+    color: #1a1a1a;
+    text-shadow:
+      0 0 2px rgba(255,255,255,0.6),
+      1px 1px 0 rgba(255,255,255,0.3),
+      -1px -1px 0 rgba(255,255,255,0.3);
+  }
+  .sq:active .piece { transform: scale(1.12); }
+
+  /* Labels */
+  .board-labels {
+    display: flex;
+    width: min(480px, 90vw);
+    justify-content: space-around;
+    padding: 0 2px;
+  }
+  .board-labels span {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Side panel ── */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 220px;
+    min-width: 180px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .card-title {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* Status */
+  #status-text {
+    font-family: 'Fraunces', serif;
+    font-size: 1rem;
+    font-style: italic;
+    color: var(--text);
+    line-height: 1.4;
+    min-height: 2.8em;
+  }
+
+  /* Eval bar */
+  .eval-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .eval-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .eval-bar-fill {
+    height: 100%;
+    width: 50%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+  #eval-num {
+    font-size: 0.78rem;
+    color: var(--accent);
+    min-width: 40px;
+    text-align: right;
+  }
+
+  /* Controls */
+  .btn {
+    width: 100%;
+    padding: 9px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    letter-spacing: 0.04em;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover { background: var(--border); border-color: var(--accent-dim); }
+  .btn.primary {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 500;
+  }
+  .btn.primary:hover { background: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Sims slider */
+  .slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .slider-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  #sims-val { color: var(--accent); }
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* Move list */
+  #move-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .move-pair {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .move-num {
+    color: var(--muted);
+    font-size: 0.7rem;
+    min-width: 22px;
+  }
+  .move-san {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--text);
+    background: var(--border);
+    min-width: 44px;
+    text-align: center;
+  }
+  .move-san.bot { color: var(--accent); background: rgba(125,214,168,0.1); }
+
+  /* Thinking indicator */
+  .thinking {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: var(--accent);
+    padding: 8px 0 0;
+  }
+  .thinking.active { display: flex; }
+  .dot { animation: blink 1.2s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink {
+    0%,80%,100% { opacity: 0.15; }
+    40%         { opacity: 1; }
+  }
+
+  /* Color choice */
+  .color-btns {
+    display: flex;
+    gap: 8px;
+  }
+  .color-btn {
+    flex: 1;
+    padding: 7px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .color-btn:hover, .color-btn.active {
+    border-color: var(--accent);
+    background: rgba(125,214,168,0.1);
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Chess<span>Bot</span> AI</h1>
+  <p>MCTS · WDL Value Head · Trained on Lichess Elite</p>
+</header>
+
+<div class="main">
+  <div class="board-wrap">
+    <div class="board-outer">
+      <div id="board"></div>
+    </div>
+    <div class="board-labels">
+      <span>a</span><span>b</span><span>c</span>
+      <span>d</span><span>e</span><span>f</span>
+      <span>g</span><span>h</span>
+    </div>
+  </div>
+
+  <div class="panel">
+
+    <div class="card">
+      <div class="card-title">Status</div>
+      <div id="status-text">Choose your side to begin.</div>
+      <div class="eval-row">
+        <div class="eval-bar-track"><div class="eval-bar-fill" id="eval-bar"></div></div>
+        <div id="eval-num">—</div>
+      </div>
+      <div class="thinking" id="thinking">
+        <span>Thinking</span>
+        <span class="dot">●</span><span class="dot">●</span><span class="dot">●</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Play as</div>
+      <div class="color-btns">
+        <button class="color-btn active" id="btn-white" onclick="chooseColor('white')">♙ White</button>
+        <button class="color-btn" id="btn-black" onclick="chooseColor('black')">♟ Black</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Strength</div>
+      <div class="slider-row">
+        <div class="slider-label">
+          <span>MCTS sims</span>
+          <span id="sims-val">200</span>
+        </div>
+        <input type="range" id="sims" min="50" max="800" step="50" value="200"
+               oninput="document.getElementById('sims-val').textContent=this.value">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <button class="btn primary" onclick="newGame()">⟳ &nbsp;New game</button>
+      <br>
+      <button class="btn" onclick="undoMove()" id="btn-undo">← &nbsp;Undo</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Moves</div>
+      <div id="move-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Pieces ──────────────────────────────────────────────
+const PIECES = {
+  wP:'♙', wN:'♘', wB:'♗', wR:'♖', wQ:'♕', wK:'♔',
+  bP:'♟', bN:'♞', bB:'♝', bR:'♜', bQ:'♛', bK:'♚',
+};
+
+// ── State ───────────────────────────────────────────────
+let board        = null;
+let selected     = null;
+let legalTargets = [];
+let playerColor  = 'white';
+let lastMoveUCI  = null;
+let lastMoveSqs  = [];
+let history      = [];  // {fen, last_move, san}
+let gameOver     = false;
+let thinking     = false;
+
+// ── Init ─────────────────────────────────────────────────
+function buildBoardDOM() {
+  const el = document.getElementById('board');
+  el.innerHTML = '';
+  for (let rank = 7; rank >= 0; rank--) {
+    for (let file = 0; file < 8; file++) {
+      const sq  = document.createElement('div');
+      const idx = rank * 8 + file;
+      sq.className = 'sq ' + ((rank + file) % 2 === 0 ? 'dark' : 'light');
+      sq.dataset.idx = idx;
+      sq.onclick = () => onSquareClick(idx);
+
+      // Coords
+      if (file === 0) {
+        const r = document.createElement('span');
+        r.className = 'coord coord-rank';
+        r.textContent = rank + 1;
+        sq.appendChild(r);
+      }
+      if (rank === 0) {
+        const f = document.createElement('span');
+        f.className = 'coord coord-file';
+        f.textContent = 'abcdefgh'[file];
+        sq.appendChild(f);
+      }
+
+      el.appendChild(sq);
+    }
+  }
+}
+
+function fenToBoard(fen) {
+  const rows = fen.split(' ')[0].split('/');
+  const pieces = {};
+  for (let rank = 0; rank < 8; rank++) {
+    let file = 0;
+    for (const ch of rows[7 - rank]) {
+      if ('12345678'.includes(ch)) { file += parseInt(ch); }
+      else {
+        const color = ch === ch.toUpperCase() ? 'w' : 'b';
+        const type  = ch.toUpperCase();
+        pieces[rank * 8 + file] = color + type;
+        file++;
+      }
+    }
+  }
+  return pieces;
+}
+
+function renderBoard(fen) {
+  board = fenToBoard(fen);
+  const sqs = document.querySelectorAll('.sq');
+  sqs.forEach(sq => {
+    // clear piece
+    const existing = sq.querySelector('.piece');
+    if (existing) existing.remove();
+
+    const idx   = parseInt(sq.dataset.idx);
+    const piece = board[idx];
+    if (piece) {
+      const p  = document.createElement('span');
+      const pc = piece[0] === 'w' ? 'white' : 'black';
+      p.className   = 'piece ' + pc;
+      p.textContent = PIECES[piece] || '?';
+      sq.appendChild(p);
+    }
+
+    // highlights
+    sq.classList.remove('selected', 'hint', 'has-piece', 'last-move');
+    if (lastMoveSqs.includes(idx))  sq.classList.add('last-move');
+    if (selected === idx)           sq.classList.add('selected');
+    if (legalTargets.includes(idx)) {
+      sq.classList.add('hint');
+      if (piece) sq.classList.add('has-piece');
+    }
+  });
+}
+
+// ── UCI <-> square index ─────────────────────────────────
+function squareToIdx(sq) { // "e4" → idx
+  const file = sq.charCodeAt(0) - 97;
+  const rank  = parseInt(sq[1]) - 1;
+  return rank * 8 + file;
+}
+function idxToSquare(idx) {
+  const file = idx % 8;
+  const rank  = Math.floor(idx / 8);
+  return 'abcdefgh'[file] + (rank + 1);
+}
+
+// ── Legal moves from current FEN ─────────────────────────
+let currentFen   = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+let allLegalUCI  = [];
+let moveHistory  = [];   // san strings for display
+
+async function fetchLegalMoves(fen) {
+  const res = await fetch('/api/legal_moves', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({fen})
+  });
+  return await res.json();
+}
+
+function getLegalTargetsForSquare(idx) {
+  const from = idxToSquare(idx);
+  return allLegalUCI
+    .filter(uci => uci.slice(0,2) === from)
+    .map(uci => squareToIdx(uci.slice(2,4)));
+}
+
+// ── Click handler ────────────────────────────────────────
+async function onSquareClick(idx) {
+  if (gameOver || thinking) return;
+
+  const turn = currentFen.split(' ')[1]; // 'w' or 'b'
+  const isMyTurn = (turn === 'w' && playerColor === 'white') ||
+                   (turn === 'b' && playerColor === 'black');
+  if (!isMyTurn) return;
+
+  if (selected === null) {
+    // Select a piece
+    const piece = board[idx];
+    if (!piece) return;
+    const myColor = playerColor === 'white' ? 'w' : 'b';
+    if (!piece.startsWith(myColor)) return;
+
+    selected     = idx;
+    legalTargets = getLegalTargetsForSquare(idx);
+    renderBoard(currentFen);
+  } else {
+    if (idx === selected) {
+      // Deselect
+      selected = null; legalTargets = [];
+      renderBoard(currentFen);
+      return;
+    }
+
+    // Try to move
+    const from = idxToSquare(selected);
+    const to   = idxToSquare(idx);
+    const moves = allLegalUCI.filter(u =>
+      u.slice(0,2) === from && u.slice(2,4) === to);
+
+    if (moves.length === 0) {
+      // Maybe clicking another own piece
+      const piece = board[idx];
+      const myColor = playerColor === 'white' ? 'w' : 'b';
+      if (piece && piece.startsWith(myColor)) {
+        selected     = idx;
+        legalTargets = getLegalTargetsForSquare(idx);
+        renderBoard(currentFen);
+        return;
+      }
+      selected = null; legalTargets = [];
+      renderBoard(currentFen);
+      return;
+    }
+
+    // Auto-promote to queen
+    const uci = moves.find(u => u.length === 5 ? u[4] === 'q' : true) || moves[0];
+    await applyPlayerMove(uci);
+  }
+}
+
+async function applyPlayerMove(uci) {
+  selected = null; legalTargets = [];
+
+  // Push move locally via legal_moves to get new FEN
+  // We use a temporary board via the server
+  const res = await fetch('/api/move', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({fen: currentFen, last_move: lastMoveUCI, sims: 1, human_move: uci})
+  });
+
+  // Actually: just compute new FEN client-side from uci
+  const newFen = applyUCIClient(currentFen, uci);
+  if (!newFen) return;
+
+  lastMoveUCI  = uci;
+  lastMoveSqs  = [squareToIdx(uci.slice(0,2)), squareToIdx(uci.slice(2,4))];
+  history.push({fen: currentFen, last_move: lastMoveUCI});
+  currentFen   = newFen;
+
+  const legal = await fetchLegalMoves(currentFen);
+  allLegalUCI  = legal.moves || [];
+  addMoveToList(uci, false);
+  renderBoard(currentFen);
+
+  if (legal.is_game_over) {
+    setStatus('Game over — ' + (legal.result || ''));
+    gameOver = true;
+    return;
+  }
+
+  // Bot's turn
+  await requestBotMove();
+}
+
+// ── Minimal client-side FEN update ───────────────────────
+function applyUCIClient(fen, uci) {
+  // Use server to get updated FEN via legal_moves after move
+  // We'll get this from the bot response or re-fetch
+  // For now return null and rely on server response
+  return _applyMove(fen, uci);
+}
+
+function _applyMove(fen, uci) {
+  // Simple FEN updater — handles basic moves + castling + en passant + promotion
+  const parts = fen.split(' ');
+  const rows  = parts[0].split('/');
+  const turn  = parts[1];
+  let   cast  = parts[2];
+  let   ep    = parts[3];
+  let   half  = parseInt(parts[4]);
+  let   full  = parseInt(parts[5]);
+
+  // Build 8x8 grid
+  const grid = [];
+  for (let r = 0; r < 8; r++) {
+    const row = [];
+    let f = 0;
+    for (const ch of rows[7 - r]) {
+      if ('12345678'.includes(ch)) { for (let i=0;i<parseInt(ch);i++) row.push(null); f+=parseInt(ch); }
+      else { row.push(ch); f++; }
+    }
+    grid.push(row);
+  }
+
+  const fromFile = uci.charCodeAt(0) - 97;
+  const fromRank = parseInt(uci[1]) - 1;
+  const toFile   = uci.charCodeAt(2) - 97;
+  const toRank   = parseInt(uci[3]) - 1;
+  const promo    = uci[4] || null;
+
+  const piece = grid[fromRank][fromFile];
+  if (!piece) return null;
+
+  const isWhite = piece === piece.toUpperCase();
+
+  // En passant capture
+  let epCapture = false;
+  if (piece.toUpperCase() === 'P' && ep !== '-') {
+    const epFile = ep.charCodeAt(0) - 97;
+    const epRank = parseInt(ep[1]) - 1;
+    if (toFile === epFile && toRank === epRank) {
+      // Remove captured pawn
+      grid[fromRank][toFile] = null;
+      epCapture = true;
+    }
+  }
+
+  // Castling rook move
+  if (piece.toUpperCase() === 'K' && Math.abs(toFile - fromFile) === 2) {
+    if (toFile === 6) { grid[fromRank][5] = grid[fromRank][7]; grid[fromRank][7] = null; }
+    else              { grid[fromRank][3] = grid[fromRank][0]; grid[fromRank][0] = null; }
+  }
+
+  // Move piece
+  grid[toRank][toFile]     = promo ? (isWhite ? promo.toUpperCase() : promo.toLowerCase()) : piece;
+  grid[fromRank][fromFile] = null;
+
+  // Update castling rights
+  if (piece === 'K') cast = cast.replace('K','').replace('Q','');
+  if (piece === 'k') cast = cast.replace('k','').replace('q','');
+  if (fromRank===0 && fromFile===0) cast = cast.replace('Q','');
+  if (fromRank===0 && fromFile===7) cast = cast.replace('K','');
+  if (fromRank===7 && fromFile===0) cast = cast.replace('q','');
+  if (fromRank===7 && fromFile===7) cast = cast.replace('k','');
+  if (!cast) cast = '-';
+
+  // En passant square
+  if (piece.toUpperCase() === 'P' && Math.abs(toRank - fromRank) === 2) {
+    ep = 'abcdefgh'[fromFile] + (fromRank + toRank + 2) / 2;
+  } else { ep = '-'; }
+
+  // Half move clock
+  half = (piece.toUpperCase() === 'P' || grid[toRank][toFile] !== piece) ? 0 : half + 1;
+  if (turn === 'b') full++;
+
+  // Rebuild FEN
+  const newRows = [];
+  for (let r = 7; r >= 0; r--) {
+    let row = ''; let empty = 0;
+    for (let f = 0; f < 8; f++) {
+      if (grid[r][f]) { if (empty) { row += empty; empty = 0; } row += grid[r][f]; }
+      else empty++;
+    }
+    if (empty) row += empty;
+    newRows.push(row);
+  }
+
+  return [newRows.join('/'), turn==='w'?'b':'w', cast, ep, half, full].join(' ');
+}
+
+// ── Bot move ─────────────────────────────────────────────
+async function requestBotMove() {
+  thinking = true;
+  document.getElementById('thinking').classList.add('active');
+  setStatus('Bot is thinking…');
+  document.getElementById('btn-undo').disabled = true;
+
+  const sims = parseInt(document.getElementById('sims').value);
+
+  try {
+    const res = await fetch('/api/move', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({fen: currentFen, last_move: lastMoveUCI, sims})
+    });
+    const data = await res.json();
+
+    if (data.error) { setStatus('Error: ' + data.error); return; }
+    if (!data.move)  { setStatus('Game over.'); gameOver = true; return; }
+
+    const uci = data.move;
+    lastMoveUCI = uci;
+    lastMoveSqs = [squareToIdx(uci.slice(0,2)), squareToIdx(uci.slice(2,4))];
+
+    history.push({fen: currentFen, last_move: lastMoveUCI});
+    currentFen = _applyMove(currentFen, uci);
+
+    const legal = await fetchLegalMoves(currentFen);
+    allLegalUCI = legal.moves || [];
+    addMoveToList(uci, true);
+    renderBoard(currentFen);
+    updateEval(data.eval);
+
+    if (legal.is_game_over) {
+      setStatus('Game over — ' + (legal.result || ''));
+      gameOver = true;
+    } else {
+      setStatus('Your move.');
+    }
+  } finally {
+    thinking = false;
+    document.getElementById('thinking').classList.remove('active');
+    document.getElementById('btn-undo').disabled = false;
+  }
+}
+
+// ── UI helpers ───────────────────────────────────────────
+function setStatus(msg) {
+  document.getElementById('status-text').textContent = msg;
+}
+
+function updateEval(score) {
+  if (score === undefined || score === null) return;
+  const pct = Math.round((score + 1) / 2 * 100);
+  document.getElementById('eval-bar').style.width = pct + '%';
+  document.getElementById('eval-num').textContent =
+    (score >= 0 ? '+' : '') + score.toFixed(2);
+}
+
+let moveCounter = 1;
+let whiteMoved  = false;
+
+function addMoveToList(uci, isBot) {
+  const ml = document.getElementById('move-list');
+  const isWhiteTurn = (playerColor === 'white' && !isBot) ||
+                      (playerColor === 'black' && isBot);
+
+  if (isWhiteTurn || (!whiteMoved && !isWhiteTurn)) {
+    const pair = document.createElement('div');
+    pair.className = 'move-pair';
+    pair.innerHTML = `<span class="move-num">${moveCounter}.</span>`;
+    pair.id = 'pair-' + moveCounter;
+    ml.appendChild(pair);
+    if (isWhiteTurn) whiteMoved = true;
+  }
+
+  const span = document.createElement('span');
+  span.className = 'move-san' + (isBot ? ' bot' : '');
+  span.textContent = uci;
+
+  const pair = document.getElementById('pair-' + moveCounter);
+  if (pair) pair.appendChild(span);
+
+  if (!isWhiteTurn) { moveCounter++; whiteMoved = false; }
+
+  ml.scrollTop = ml.scrollHeight;
+}
+
+// ── New game ─────────────────────────────────────────────
+async function newGame() {
+  currentFen  = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  selected    = null; legalTargets = []; lastMoveUCI = null;
+  lastMoveSqs = []; history = []; gameOver = false; thinking = false;
+  moveCounter = 1; whiteMoved = false;
+  document.getElementById('move-list').innerHTML = '';
+  document.getElementById('eval-bar').style.width = '50%';
+  document.getElementById('eval-num').textContent = '—';
+  document.getElementById('thinking').classList.remove('active');
+
+  const legal = await fetchLegalMoves(currentFen);
+  allLegalUCI = legal.moves || [];
+  renderBoard(currentFen);
+
+  if (playerColor === 'black') {
+    setStatus('Bot plays first…');
+    await requestBotMove();
+  } else {
+    setStatus('Your move. You play White.');
+  }
+}
+
+function chooseColor(c) {
+  playerColor = c;
+  document.getElementById('btn-white').classList.toggle('active', c==='white');
+  document.getElementById('btn-black').classList.toggle('active', c==='black');
+  newGame();
+}
+
+// ── Undo ─────────────────────────────────────────────────
+async function undoMove() {
+  if (history.length < 2 || thinking) return;
+  history.pop(); history.pop();  // undo bot + player
+  const prev   = history[history.length - 1];
+  currentFen   = prev ? prev.fen : 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  lastMoveUCI  = prev ? prev.last_move : null;
+  lastMoveSqs  = lastMoveUCI
+    ? [squareToIdx(lastMoveUCI.slice(0,2)), squareToIdx(lastMoveUCI.slice(2,4))]
+    : [];
+  gameOver     = false;
+  const legal  = await fetchLegalMoves(currentFen);
+  allLegalUCI  = legal.moves || [];
+  selected     = null; legalTargets = [];
+  renderBoard(currentFen);
+  setStatus('Your move.');
+}
+
+// ── Boot ─────────────────────────────────────────────────
+buildBoardDOM();
+newGame();
+</script>
+</body>
+</html>
