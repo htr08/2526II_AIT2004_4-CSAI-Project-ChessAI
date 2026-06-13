@@ -107,6 +107,54 @@ class PolicyValueNet(nn.Module):
 
         return policy_logits, value
 
+    @torch.no_grad()
+    def evaluate_position(self, board, device: str = "cpu") -> float:
+        """
+        Đánh giá một thế cờ bằng value head.
+
+        Trả về scalar trong [-1, 1] theo góc nhìn của BÊN ĐANG ĐI (side-to-move):
+        +1 = bên sắp đi đang thắng rõ, -1 = đang thua, 0 = cân bằng.
+
+        Lưu ý: KHÔNG đặt tên `eval` vì nn.Module đã có sẵn `.eval()` (đổi sang
+        chế độ inference). Hàm này tự bật eval-mode trước khi chạy.
+        """
+        # Lazy import để network.py vẫn load được khi chưa cần chess/encode.
+        from ..data.encode_board import board_to_tensor_perspective
+
+        self.eval()
+        x = board_to_tensor_perspective(board).unsqueeze(0).to(device)
+        _, value = self.forward(x)
+        return float(value.squeeze(0).cpu().item())
+
+    @torch.no_grad()
+    def rate_last_move(self, board, device: str = "cpu") -> float:
+        """
+        Chấm điểm "nước đi vừa rồi tốt đến đâu" cho NGƯỜI VỪA ĐI.
+
+        Input: `board` là thế cờ SAU khi đã đẩy nước cần chấm (board.turn giờ là
+        đối thủ của người vừa đi).
+
+        Trả về scalar trong [-1, 1] theo góc nhìn của NGƯỜI VỪA ĐI:
+            +1 = nước vừa đi rất tốt (đang thắng / chiếu hết),
+             0 = không đổi cục diện,
+            -1 = nước vừa đi rất tệ (đang thua).
+
+        Cách tính: value head cho giá trị theo góc nhìn bên-sắp-đi (= đối thủ),
+        nên điểm cho người vừa đi là dấu ngược lại. Thế cờ kết thúc xử riêng:
+        chiếu hết -> +1 (người vừa đi vừa chiếu hết); hòa -> 0.
+        """
+        import chess
+
+        if board.is_checkmate():
+            # Bên sắp đi bị chiếu hết -> người vừa đi đã thắng.
+            return 1.0
+        if board.is_stalemate() or board.is_insufficient_material() \
+                or board.can_claim_fifty_moves() or board.can_claim_threefold_repetition():
+            return 0.0
+
+        # value theo góc nhìn bên-sắp-đi (đối thủ) -> đảo dấu cho người vừa đi.
+        return -self.evaluate_position(board, device=device)
+
 
 class PolicyNet(nn.Module):
     """
