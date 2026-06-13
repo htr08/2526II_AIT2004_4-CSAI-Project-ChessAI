@@ -8,6 +8,7 @@ REQUIREMENTS = {
     "torch": "torch",
     "numpy": "numpy",
     "tqdm": "tqdm",
+    "gdown": "gdown",
 }
 
 def check_and_install():
