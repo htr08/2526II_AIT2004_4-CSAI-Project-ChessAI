@@ -1,5 +1,3 @@
-"""Kiến trúc mạng: PolicyNet (CNN đơn giản) và DualNet (ResNet backbone + policy head + value head)."""
-
 import torch
 import torch.nn as nn
 
@@ -10,17 +8,25 @@ class PolicyNet(nn.Module):
     def __init__(self, in_channels: int = 17, num_moves: int = 4544):
         super().__init__()
         self.backbone = nn.Sequential(
-            nn.Conv2d(in_channels, 64,  3, padding=1), nn.BatchNorm2d(64),  nn.ReLU(),
-            nn.Conv2d(64,         128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
-            nn.Conv2d(128,        128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
-            nn.Conv2d(128,        64,  3, padding=1), nn.BatchNorm2d(64),  nn.ReLU(),
-        )  # output: (B, 64, 8, 8)
+            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+        )
 
         self.policy_head = nn.Sequential(
             nn.Flatten(),
             nn.Linear(64 * 8 * 8, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.30),
             nn.Linear(256, num_moves),
         )
 
@@ -38,56 +44,89 @@ class PolicyNet(nn.Module):
             mask[legal_moves_idx] = logits[legal_moves_idx]
             return mask.argmax().item()
 
+
 class ResBlock(nn.Module):
     """Residual block nhỏ — giúp train ổn hơn PolicyNet phẳng."""
-    def __init__(self, channels=128):
+
+    def __init__(self, channels: int = 128):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(channels, channels, 3, padding=1),
-            nn.BatchNorm2d(channels), nn.ReLU(),
-            nn.Conv2d(channels, channels, 3, padding=1),
-            nn.BatchNorm2d(channels)
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(channels),
         )
-        self.relu = nn.ReLU()
-    def forward(self, x): return self.relu(x + self.net(x))
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.relu(x + self.net(x))
+
 
 class DualNet(nn.Module):
-    def __init__(self, in_ch: int = 17, num_moves: int = 4544, n_res: int = 4):
+    def __init__(
+        self,
+        in_channels: int = 17,
+        num_moves: int = 4544,
+        num_res_blocks: int = 4,
+        base_channels: int = 128,
+        board_h: int = 8,
+        board_w: int = 8,
+    ):
         super().__init__()
+        spatial = board_h * board_w
+
         # Shared backbone
         self.stem = nn.Sequential(
-            nn.Conv2d(in_ch, 128, 3, padding=1),
-            nn.BatchNorm2d(128), nn.ReLU()
+            nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(base_channels),
+            nn.ReLU(inplace=True),
         )
-        self.res_blocks = nn.Sequential(*[ResBlock(128) for _ in range(n_res)])
+        self.res_chain = nn.Sequential(
+            *[ResBlock(base_channels) for _ in range(num_res_blocks)]
+        )
 
         # Policy head
         self.policy_head = nn.Sequential(
-            nn.Conv2d(128, 32, 1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.Flatten(), nn.Linear(32*8*8, num_moves)
+            nn.Conv2d(base_channels, 32, kernel_size=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(32 * spatial, num_moves),
         )
+
         # Value head
         self.value_head = nn.Sequential(
-            nn.Conv2d(128, 1, 1), nn.BatchNorm2d(1), nn.ReLU(),
-            nn.Flatten(), nn.Linear(8*8, 64), nn.ReLU(),
-            nn.Linear(64, 1), nn.Tanh()   # output ∈ [-1, 1]
+            nn.Conv2d(base_channels, 1, kernel_size=1, bias=False),
+            nn.BatchNorm2d(1),
+            nn.ReLU(inplace=True),
+            nn.Flatten(),
+            nn.Linear(1 * spatial, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 1),
+            nn.Tanh(),  # output ∈ [-1, 1]
         )
 
-    def forward(self, x):
-        z = self.res_blocks(self.stem(x))
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        z = self.res_chain(self.stem(x))
         return self.policy_head(z), self.value_head(z).squeeze(-1)
 
-# Load weights từ PolicyNet (tuần 1) vào DualNet — chỉ copy những layer có tên + shape khớp.
-# DualNet dùng stem/res_blocks thay vì backbone nên rất ít weight được transfer;
-# hàm này chủ yếu hữu ích nếu DualNet sau được refactor lại cùng key names.
+
 def load_pretrained_backbone(model: nn.Module, policy_path: str) -> None:
+    """Load weights từ PolicyNet vào DualNet — chỉ copy những layer có tên + shape khớp."""
     old = torch.load(policy_path, map_location="cpu")
     new_state = model.state_dict()
-    transferred = {k: v for k, v in old.items()
-                   if k in new_state and new_state[k].shape == v.shape}
+    transferred = {
+        k: v
+        for k, v in old.items()
+        if k in new_state and new_state[k].shape == v.shape
+    }
     new_state.update(transferred)
     model.load_state_dict(new_state, strict=False)
-    print(f"Transferred {len(transferred)}/{len(old)} layers from pretrained PolicyNet")
+    print(
+        f"Transferred {len(transferred)}/{len(old)} layers from pretrained PolicyNet"
+    )
+
 
 if __name__ == "__main__":
     net = DualNet()
@@ -96,5 +135,5 @@ if __name__ == "__main__":
 
     dummy = torch.zeros(1, 17, 8, 8)
     policy, value = net(dummy)
-    print(f"Policy head : {policy.shape}")   # (1, 4544)
-    print(f"Value  head : {value.shape}")    # (1,)
+    print(f"Policy head : {policy.shape}")  # (1, 4544)
+    print(f"Value  head : {value.shape}")  # (1,)
