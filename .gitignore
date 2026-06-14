@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Model checkpoints (lưu trên Google Drive, xem download_links.json)
+*.pt
+
+# Logs sinh ra từ refactor_checkpoints.py
+checkpoint_log.txt
+checkpoint_log.json
