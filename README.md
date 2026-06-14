@@ -38,4 +38,12 @@ root/
 
 4. **Lưu ý:** Đọc kĩ log trước khi sang bước tiếp theo.
 ## 3, Coming soon:
-> Hãy clone về và chạy theo pipeline này để test tiến độ, nếu có vấn đề, hãy báo ngay cho tôi
+> 1, Hãy clone về và chạy theo pipeline này để test tiến độ, nếu có vấn đề, hãy báo ngay cho tôi  
+> 2, ***TO-DO***: Yêu cầu ae **Gấp rút** thiết kế architecture.py theo cấu trúc dựa trên ***Moder_dir/khanh/architecture.py***  
+> 3, Nếu muốn test sự thay đổi này thì sau các bước trên, hãy thử chạy:
+
+```powershell
+python test.py
+```
+
+Nếu không có lỗi gì, thì log sẽ đc in ra đầy đủ và khi đó là pass rồi.
