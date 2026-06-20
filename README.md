@@ -262,7 +262,7 @@ output = ReLU( Conv2( Conv1(x) ) × w_SE + x )
 | ResBlocks | 6 |
 | Attention heads | 4 |
 | Attention sau mỗi | 3 blocks |
-| Tổng tham số | ~1.2M |
+| Tổng tham số | ~8.9M |
 
 
 
