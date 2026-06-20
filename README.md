@@ -10,22 +10,21 @@ Xây một AI cờ vua từ đầu theo tinh thần AlphaZero: đầu tiên cho 
 
 ## Mục lục
 - [Pipeline tổng quan](#pipeline-tổng-quan)
+- [Chạy trên Kaggle](#chạy-trên-kaggle)
+- [Web App](#web-app)
 - [Kiến trúc mạng ChessNet](#kiến-trúc-mạng-chessnet)
 - [Self-Play & Học tăng cường](#self-play--học-tăng-cường)
 - [Kết quả](#kết-quả)
-- [Chạy trên Kaggle](#chạy-trên-kaggle)
-- [Web App](#web-app)
 - [Thành viên](#thành-viên)
 
 ---
-
 ## Pipeline tổng quan
 
 ```
 [250k ván PGN — Lichess Elite]
            │
            ▼
-   Pretrain — 9 epoch
+   Pretrain 
    AdamW + Warmup + CosineAnnealing
    Policy: Cross-Entropy
    Value:  Cross-Entropy WDL
@@ -34,8 +33,8 @@ Xây một AI cờ vua từ đầu theo tinh thần AlphaZero: đầu tiên cho 
        Best Model ◄──────────────────────┐
            │                             │ Win Rate ≥ 55% → update
            ▼                             │
-   Self-play: 128 ván × 400 sims         │
-   Batched MCTS → ~15.000 positions      │
+       Self-play                         │
+      Batched MCTS                       │
            │                             │
            ▼                             │
    RL Training: 3 epoch                  │
@@ -45,6 +44,156 @@ Xây một AI cờ vua từ đầu theo tinh thần AlphaZero: đầu tiên cho 
    Eval: 40 ván, khai cuộc ngẫu nhiên ───┘
    (lặp 15 iterations)
 ```
+
+## Chạy trên Kaggle
+
+### Yêu cầu
+Tài khoản Kaggle free — GPU T4 × 2, ~30h/tuần.
+
+### Các bước
+
+**1. Upload notebook**
+
+Vào [kaggle.com/code](https://kaggle.com/code) → **New Notebook** → **File** → **Import Notebook** → chọn `chesskaggle.ipynb`.
+
+**2. Bật GPU T4 × 2**
+
+Trong notebook: **Settings** (góc phải) → **Accelerator** → **GPU T4 × 2**.
+
+**3. Add Dataset**
+
+Dataset:
+
+Trong Kaggle Notebook:
+- Nhấn **Add Input**
+- Tìm `alinhtrng/chesss`
+- Nhấn **Add**
+
+Dataset sẽ được mount tại:
+
+```python
+/kaggle/input/chesss
+```
+
+**4. Chỉnh CONFIG theo ý muốn**
+
+Config pretrain
+
+```python
+# =========================
+# MODEL ARCHITECTURE
+# =========================
+
+CHANNELS = 64 # Số kênh (feature maps) trong mạng.
+
+RES_BLOCKS = 6 # Số Residual Block.
+
+ATTN_HEADS = 4 # Số attention heads trong Multi-Head Attention.
+
+# Chèn 1 Attention Block sau mỗi 3 Residual Blocks.
+# Với RES_BLOCKS=6:
+# Block1 -> Block2 -> Block3 -> Attention
+# Block4 -> Block5 -> Block6 -> Attention
+
+ATTN_EVERY = 3
+
+BATCH_SIZE      = 512          # Số position được đưa vào model mỗi lần update gradient.
+  
+LR_PRETRAIN     = 1e-3         # learning rate
+EPOCHS_PRETRAIN = 7            # số epoch rong pretrain
+MAX_PGN_GAMES   = 250_000      # số game được train
+WARMUP_STEPS    = 1000         # Linear warmup trong ~1000 bước đầu
+VALUE_WEIGHT    = 1.0          # Trọng số loss của Value Head
+RESUME_EPOCH    = 7
+```
+
+```python
+NUM_SELF_PLAY_GAMES  = 128     # Số ván self-play sinh ra mỗi vòng RL.
+MCTS_SIMS_SELFPLAY   = 400    # Số lần mô phỏng MCTS cho mỗi nước khi self-play.
+MCTS_SIMS_EVAL       = 400     # Số lần mô phỏng MCTS khi đánh giá model.
+MAX_GAME_MOVES       = 150    # Giới hạn số nước tối đa trong một ván.
+TEMP_THRESHOLD       = 30     # Sau nước thứ 30 sẽ chọn nước đi ít ngẫu nhiên hơn.
+
+RL_BATCH_SIZE        = 256    # Số mẫu dùng trong mỗi lần cập nhật gradient ở RL.
+RL_LR                = 1e-4   # Learning rate khi huấn luyện bằng self-play có thể giảm đi từ iter 10-15 để train hiệu quả hơn .
+RL_EPOCHS            = 5      # Số lần học lại toàn bộ dữ liệu self-play mỗi vòng.
+RL_WEIGHT_DECAY      = 1e-4   # Hệ số regularization để giảm overfitting.
+RL_WARMUP_STEPS      = 100    # Số bước tăng dần learning rate lúc bắt đầu RL.
+
+EVAL_GAMES           = 40     # Số ván dùng để so sánh model mới và model tốt nhất.
+WIN_THRESHOLD        = 0.55   # Tỷ lệ thắng tối thiểu để chấp nhận model mới.
+RL_ITERATIONS        = 25     # Số vòng lặp self-play → train → đánh giá.
+```
+
+**5. Chạy**
+
+Nhấn **Save Version -> Save and run** 
+
+Model lưu tại `/kaggle/working/rl/best_model.pt` → tab **Output** để download.
+
+**6. Resume sau khi hết giờ**
+
+```python
+RESUME_EPOCH = 5      # tiếp pretrain từ epoch đã lưu
+run_train()
+
+run_rl_loop(start_iteration=3)   # tiếp RL từ iteration đã lưu
+```
+
+---
+
+## Web App
+
+Flask server + UI bàn cờ, chơi trực tiếp qua trình duyệt.
+
+### Chạy local
+
+```bash
+git clone https://github.com/htr08/2526II_AIT2004_4-CSAI-Project-ChessAI
+cd chessbot
+```
+
+Tạo môi trường ảo:
+```bash
+# Linux / macOS
+python3 -m venv venv && source venv/bin/activate
+
+# Windows (PowerShell)
+python -m venv venv
+venv\Scripts\Activate.ps1
+
+# Windows (Command Prompt)
+python -m venv venv
+venv\Scripts\activate.bat
+```
+
+```bash
+pip install -r requirements.txt
+# đặt best_model.pt vào thư mục gốc
+python app.py
+# → http://localhost:5000
+```
+
+Thoát: `deactivate`
+
+### Biến môi trường
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `MODEL_PATH` | `best_model.pt` | Đường dẫn đến file model |
+| `MCTS_SIMS` | `200` | Số simulations mỗi nước |
+| `C_PUCT` | `2.0` | Exploration constant |
+
+### API
+
+```
+POST /api/move         { fen, last_move, sims }  →  { move, eval }
+POST /api/legal_moves  { fen }                   →  { moves, is_game_over }
+GET  /api/health                                 →  { status, device, sims }
+```
+### Giao diện
+
+![Giao diện Flask](pics/485ed0d9-76e2-445b-9273-7037478875f9.jpg)
 
 ---
 
@@ -115,35 +264,7 @@ output = ReLU( Conv2( Conv1(x) ) × w_SE + x )
 | Attention sau mỗi | 3 blocks |
 | Tổng tham số | ~1.2M |
 
-### SE Gate (Squeeze-Excite)
 
-SE gate hoạt động như một bộ lọc thông minh: tự học xem kênh nào quan trọng trong từng tình huống và điều chỉnh trọng số tương ứng. Kênh Mã sẽ tự bị giảm về gần 0 khi tàn cuộc không còn Mã trên bàn.
-
-```
-Squeeze : GlobalAvgPool(64×8×8) → z ∈ ℝ⁶⁴
-Excite  : FC(64→16) → ReLU → FC(16→64) → Sigmoid → w ∈ (0,1)⁶⁴
-Scale   : x_out[c] = x[c] × w[c]
-```
-
-Chỉ tốn 2.048 tham số nhưng hiệu quả rõ rệt.
-
-### BoardAttention
-
-Tích chập chỉ nhìn được vùng 3×3 xung quanh mỗi ô. Self-Attention 4 heads cho phép mỗi ô "hỏi thăm" tất cả 63 ô còn lại cùng lúc — bắt được những mối quan hệ xa như Hậu kiểm soát đường chéo dài hay Xe đang phong tỏa cột.
-
-### Hàm mất mát
-
-```
-L_total = L_policy + λ × L_value     (λ = 1.0)
-
-L_policy : Cross-Entropy
-           so sánh nước dự đoán với nước GM thực tế đã đi
-
-L_value  : Cross-Entropy WDL
-           nhãn ∈ {0=Win, 1=Draw, 2=Loss} từ góc nhìn bên đang đi
-```
-
-Value Head dùng WDL thay vì 1 scalar như AlphaZero gốc vì cờ vua có 3 kết quả rời rạc — phân biệt rõ hơn giữa "thắng chắc" và "đang dẫn nhưng dễ hòa".
 
 ### Kỹ thuật huấn luyện
 
@@ -226,7 +347,7 @@ Ba tối ưu thêm giúp đạt speedup thực tế:
 - Dùng `push/pop` trực tiếp thay vì `board.copy()` tốn kém
 - Tái sử dụng engine object, chỉ reinit root sau mỗi nước
 
-### Vòng lặp RL (15 iterations)
+### Vòng lặp RL 
 
 ```
 ① Self-play
@@ -266,113 +387,6 @@ Ba tối ưu thêm giúp đạt speedup thực tế:
 Top-5 86% có nghĩa là trong phần lớn tình huống, nước đúng nằm trong top 5 mạng đề xuất — nền tảng chiến thuật đủ tốt để RL tiếp tục cải thiện.
 
 ---
-
-## Chạy trên Kaggle
-
-### Yêu cầu
-Tài khoản Kaggle free — GPU T4 × 2, ~30h/tuần.
-
-### Các bước
-
-**1. Upload notebook**
-
-Vào [kaggle.com/code](https://kaggle.com/code) → **New Notebook** → **File** → **Import Notebook** → chọn `chesskaggle.ipynb`.
-
-**2. Bật GPU T4 × 2**
-
-Trong notebook: **Settings** (góc phải) → **Accelerator** → **GPU T4 × 2**.
-
-**3. Upload dataset PGN**
-
-Vào [kaggle.com/datasets](https://kaggle.com/datasets) → **New Dataset** → upload 3 file:
-```
-lichess_elite_2024-07.pgn
-lichess_elite_2025-03.pgn
-lichess_elite_2025-09.pgn
-```
-Sau đó trong notebook: **+ Add Data** → tìm dataset vừa tạo.
-
-**4. Chỉnh đường dẫn trong CONFIG**
-
-```python
-PGN_FILES = [
-    "/kaggle/input/<tên-dataset>/lichess_elite_2024-07.pgn",
-    "/kaggle/input/<tên-dataset>/lichess_elite_2025-03.pgn",
-    "/kaggle/input/<tên-dataset>/lichess_elite_2025-09.pgn",
-]
-DRIVE_DIR     = "/kaggle/working"
-PRETRAIN_CKPT = "/kaggle/working/pretrain.pt"
-```
-
-**5. Chạy**
-
-**Run All** — pretrain ~4–6h, mỗi RL iteration ~25–35 phút.
-
-Model lưu tại `/kaggle/working/rl/best_model.pt` → tab **Output** để download.
-
-**6. Resume sau khi hết giờ**
-
-```python
-RESUME_EPOCH = 5      # tiếp pretrain từ epoch đã lưu
-run_train()
-
-run_rl_loop(start_iteration=3)   # tiếp RL từ iteration đã lưu
-```
-
----
-
-## Web App
-
-Flask server + UI bàn cờ, chơi trực tiếp qua trình duyệt.
-
-### Chạy local
-
-```bash
-git clone https://github.com/<your-username>/chessbot.git
-cd chessbot
-```
-
-Tạo môi trường ảo:
-```bash
-# Linux / macOS
-python3 -m venv venv && source venv/bin/activate
-
-# Windows (PowerShell)
-python -m venv venv
-venv\Scripts\Activate.ps1
-
-# Windows (Command Prompt)
-python -m venv venv
-venv\Scripts\activate.bat
-```
-
-```bash
-pip install -r requirements.txt
-# đặt best_model.pt vào thư mục gốc
-python app.py
-# → http://localhost:5000
-```
-
-Thoát: `deactivate`
-
-### Biến môi trường
-
-| Biến | Mặc định | Mô tả |
-|------|----------|-------|
-| `MODEL_PATH` | `best_model.pt` | Đường dẫn đến file model |
-| `MCTS_SIMS` | `200` | Số simulations mỗi nước |
-| `C_PUCT` | `2.0` | Exploration constant |
-
-### API
-
-```
-POST /api/move         { fen, last_move, sims }  →  { move, eval }
-POST /api/legal_moves  { fen }                   →  { moves, is_game_over }
-GET  /api/health                                 →  { status, device, sims }
-```
-### Giao diện
-
-![Giao diện Flask](pics\485ed0d9-76e2-445b-9273-7037478875f9.jpg)
 
 ## Thành viên
 
