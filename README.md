@@ -2,9 +2,9 @@
 
 Dự án cuối kỳ môn **Cơ sở Trí tuệ Nhân tạo** — Trường Đại học Công nghệ, ĐHQGHN.
 
-Xây một AI cờ vua từ đầu theo tinh thần AlphaZero: đầu tiên cho nó học từ 250k ván của các kỳ thủ chuyên nghiệp, sau đó thả ra tự chơi với chính mình để tiếp tục cải thiện. Kèm theo web app Flask để ai cũng có thể vào thử sức.
+Xây một AI cờ vua từ đầu lấy cảm hứng từ AlphaZero: đầu tiên cho nó học từ 250k ván của các kỳ thủ chuyên nghiệp, sau đó thả ra tự chơi với chính mình để tiếp tục cải thiện. Kèm theo web app Flask để ai cũng có thể vào thử sức.
 
-> 📄 **Báo cáo đầy đủ:** [Chess_report.pdf](./Chess_report.pdf)
+> 📄 **Báo cáo đầy đủ:** [Chessbot_report.pdf](./Chessbot_report.pdf)
 
 ---
 
@@ -378,13 +378,43 @@ Ba tối ưu thêm giúp đạt speedup thực tế:
 
 ## Kết quả
 
+### Pretrain — Học có giám sát (7 epoch, 250k ván Lichess Elite)
+
 | Chỉ số | Giá trị |
 |--------|---------|
-| Top-1 Accuracy (pretrain, epoch 9) | 46% |
-| Top-5 Accuracy (pretrain, epoch 9) | 86% |
+| Top-1 Accuracy | 46.96% |
+| Top-5 Accuracy | 86.03% |
+| Val Loss (epoch cuối) | 2.622 |
 | Winrate vs Stockfish ELO 1400 | 54% / 50 ván |
 
-Top-5 86% có nghĩa là trong phần lớn tình huống, nước đúng nằm trong top 5 mạng đề xuất — nền tảng chiến thuật đủ tốt để RL tiếp tục cải thiện.
+Val Loss giảm từ 2.833 (epoch 1) xuống 2.622 (epoch 7), hội tụ ổn định không có dấu hiệu overfitting. Top-5 86% cho thấy trong phần lớn tình huống, nước đúng nằm trong top 5 mạng đề xuất — nền tảng chiến thuật đủ tốt để bước vào RL.
+
+![Training curves](./pics/training_curves.png)
+
+---
+
+### Sau học tăng cường (23 iterations tự chơi)
+
+**Tổng quan:**
+
+| Giai đoạn | Mô tả | ELO ước tính |
+|-----------|-------|--------------|
+| Pretrain (SL) | 7 epoch, policy thuần không có MCTS | ≈ 1400 |
+| Sau RL (800 sims) | 23 iter — 8 iter đầu: 128 ván × 200 sims; 15 iter sau: 128 ván × 400 sims; tổng 2.432 ván self-play | ≈ 1875 |
+
+Học tăng cường giúp mô hình tăng thêm **+475 ELO** so với pretrain — chỉ từ việc tự chơi với chính mình, không cần thêm dữ liệu người.
+
+**Kết quả đấu với Stockfish (100 ván/dòng):**
+
+| Sims | Đối thủ | Thắng | Hòa | Thua | Winrate | ELO ước tính |
+|------|---------|-------|-----|------|---------|--------------|
+| 200 | Stockfish 1600 | 67 | 5 | 28 | 0.695 | ≈ 1743 |
+| 200 | Stockfish 1700 | 50 | 13 | 37 | 0.565 | ≈ 1726 |
+| 400 | Stockfish 1600 | 83 | 3 | 14 | 0.845 | ≈ 1837 |
+| 400 | Stockfish 1800 | 50 | 7 | 43 | 0.535 | ≈ 1809 |
+| 800 | Stockfish 1800 | 57 | 9 | 34 | 0.615 | ≈ 1874 |
+
+ELO được tính theo công thức: `ΔELO = -400 × log₁₀(1/W - 1)` với `W = (Thắng + 0.5×Hòa) / Tổng`.
 
 ---
 
@@ -400,5 +430,3 @@ Top-5 86% có nghĩa là trong phần lớn tình huống, nước đúng nằm 
 | Nguyễn Thị Hiền Trang | 
 
 ---
-
-> *Lấy cảm hứng từ [AlphaZero — DeepMind (2017)](https://arxiv.org/abs/1712.01815), triển khai lại trên GPU free-tier (Kaggle T4 × 2).*
