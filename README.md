@@ -150,7 +150,7 @@ Flask server + UI bàn cờ, chơi trực tiếp qua trình duyệt.
 
 ```bash
 git clone https://github.com/htr08/2526II_AIT2004_4-CSAI-Project-ChessAI
-cd chessbot
+cd Chessweb
 ```
 
 Tạo môi trường ảo:
@@ -171,7 +171,7 @@ venv\Scripts\activate.bat
 pip install -r requirements.txt
 # đặt best_model.pt vào thư mục gốc
 python app.py
-# → http://localhost:5000
+# → http://127.0.0.1:5000
 ```
 
 Thoát: `deactivate`
